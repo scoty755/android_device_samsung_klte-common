@@ -20,8 +20,10 @@ import static com.android.internal.telephony.RILConstants.*;
 
 import android.content.Context;
 import android.telephony.Rlog;
+import android.os.AsyncResult;
 import android.os.Message;
 import android.os.Parcel;
+import android.os.SystemProperties;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.SignalStrength;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
@@ -40,8 +42,12 @@ import java.util.Collections;
 public class KlteRIL extends RIL {
 
     private static final int RIL_REQUEST_DIAL_EMERGENCY = 10016;
+    private static final int RIL_REQUEST_DIAL_EMERGENCY_LL = 10001;
+    private static final int RIL_UNSOL_ON_SS_LL = 11055;
+    private static final String RIL_VERSION_PROPERTY = "ro.sec_ril.version";
 
     private boolean mIsGsm = false;
+    private boolean isLollipopRadio = SystemProperties.getInt(RIL_VERSION_PROPERTY, 44) == 50;
 
     public KlteRIL(Context context, int networkMode, int cdmaSubscription) {
         super(context, networkMode, cdmaSubscription, null);
@@ -187,7 +193,9 @@ public class KlteRIL extends RIL {
             voiceSettings = p.readInt();
             dc.isVoice = (0 != voiceSettings);
             if (mIsGsm) {
-                boolean isVideo = (0 != p.readInt());   // Samsung CallDetails
+                boolean isVideo;
+                if (!isLollipopRadio)
+                    isVideo = (0 != p.readInt());       // Samsung CallDetails
                 int call_type = p.readInt();            // Samsung CallDetails
                 int call_domain = p.readInt();          // Samsung CallDetails
                 String csv = p.readString();            // Samsung CallDetails
@@ -197,7 +205,11 @@ public class KlteRIL extends RIL {
             int np = p.readInt();
             dc.numberPresentation = DriverCall.presentationFromCLIP(np);
             dc.name = p.readString();
-            dc.namePresentation = p.readInt();
+            if (!isLollipopRadio) {
+                dc.namePresentation = p.readInt();
+            } else {
+                dc.namePresentation = DriverCall.presentationFromCLIP(p.readInt());
+            }
             int uusInfoPresent = p.readInt();
             if (uusInfoPresent == 1) {
                 dc.uusInfo = new UUSInfo();
@@ -309,11 +321,55 @@ public class KlteRIL extends RIL {
         mIsGsm = (phoneType != RILConstants.CDMA_PHONE);
     }
 
+    @Override
+    protected void
+    processUnsolicited (Parcel p) {
+        Object ret;
+        int dataPosition = p.dataPosition();
+        int response = p.readInt();
+        int newResponse = response;
+
+        if (isLollipopRadio) {
+            switch(response) {
+                case RIL_UNSOL_ON_SS_LL:
+                    newResponse = RIL_UNSOL_ON_SS;
+                    break;
+            }
+            if (newResponse != response) {
+                p.setDataPosition(dataPosition);
+                p.writeInt(newResponse);
+            }
+        }
+        p.setDataPosition(dataPosition);
+        super.processUnsolicited(p);
+    }
+
+    @Override
+    public void
+    acceptCall (Message result) {
+        RILRequest rr
+                = RILRequest.obtain(RIL_REQUEST_ANSWER, result);
+
+        if (isLollipopRadio) {
+            rr.mParcel.writeInt(1);
+            rr.mParcel.writeInt(0);
+        }
+
+        if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
+
+        send(rr);
+    }
+
+
     private void
     dialEmergencyCall(String address, int clirMode, Message result) {
         RILRequest rr;
 
-        rr = RILRequest.obtain(RIL_REQUEST_DIAL_EMERGENCY, result);
+        if (isLollipopRadio) {
+            rr = RILRequest.obtain(RIL_REQUEST_DIAL_EMERGENCY_LL, result);
+        } else {
+            rr = RILRequest.obtain(RIL_REQUEST_DIAL_EMERGENCY, result);
+        }
         rr.mParcel.writeString(address);
         rr.mParcel.writeInt(clirMode);
         rr.mParcel.writeInt(0);        // CallDetails.call_type
@@ -324,5 +380,78 @@ public class KlteRIL extends RIL {
         if (RILJ_LOGD) riljLog(rr.serialString() + "> " + requestToString(rr.mRequest));
 
         send(rr);
+    }
+
+    @Override
+    protected RILRequest
+    processSolicited (Parcel p) {
+        int serial, error;
+        boolean found = false;
+        int dataPosition = p.dataPosition(); // save off position within the Parcel
+        serial = p.readInt();
+        error = p.readInt();
+        RILRequest rr = null;
+        /* Pre-process the reply before popping it */
+        synchronized (mRequestList) {
+            RILRequest tr = mRequestList.get(serial);
+            if (tr != null && tr.mSerial == serial) {
+                if (error == 0 || p.dataAvail() > 0) {
+                    try {switch (tr.mRequest) {
+                            /* Get those we're interested in */
+                        case RIL_REQUEST_DATA_REGISTRATION_STATE:
+                            rr = tr;
+                            break;
+                    }} catch (Throwable thr) {
+                        // Exceptions here usually mean invalid RIL responses
+                        if (tr.mResult != null) {
+                            AsyncResult.forMessage(tr.mResult, null, thr);
+                            tr.mResult.sendToTarget();
+                        }
+                        return tr;
+                    }
+                }
+            }
+        }
+        if (rr == null) {
+            /* Nothing we care about, go up */
+            p.setDataPosition(dataPosition);
+            // Forward responses that we are not overriding to the super class
+            return super.processSolicited(p);
+        }
+        rr = findAndRemoveRequestFromList(serial);
+        if (rr == null) {
+            return rr;
+        }
+        Object ret = null;
+        if (error == 0 || p.dataAvail() > 0) {
+            switch (rr.mRequest) {
+                case RIL_REQUEST_DATA_REGISTRATION_STATE: ret = responseDataRegistrationState(p); break;
+                default:
+                    throw new RuntimeException("Unrecognized solicited response: " + rr.mRequest);
+            }
+            //break;
+        }
+        if (RILJ_LOGD) riljLog(rr.serialString() + "< " + requestToString(rr.mRequest)
+                               + " " + retToString(rr.mRequest, ret));
+        if (rr.mResult != null) {
+            AsyncResult.forMessage(rr.mResult, ret, null);
+            rr.mResult.sendToTarget();
+        }
+        return rr;
+    }
+
+    private Object
+    responseDataRegistrationState(Parcel p) {
+        String response[] = (String[])responseStrings(p);
+        /* DANGER WILL ROBINSON
+         * In some cases from Vodaphone we are receiving a RAT of 102
+         * while in tunnels of the metro. Lets Assume that if we
+         * receive 102 we actually want a RAT of 2 for EDGE service */
+        if (response.length > 4 &&
+            response[0].equals("1") &&
+            response[3].equals("102")) {
+            response[3] = "2";
+        }
+        return response;
     }
 }
