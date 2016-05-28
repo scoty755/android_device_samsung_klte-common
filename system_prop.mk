@@ -1,12 +1,23 @@
+# Art
+PRODUCT_PROPERTY_OVERRIDES += \
+    dalvik.vm.dex2oat-swap=false
+
 # Audio
 PRODUCT_PROPERTY_OVERRIDES += \
-    av.offload.enable=false \
+    af.fast_track_multiplier=1 \
+    audio_hal.period_size=192 \
+    audio.offload.video=true \
     persist.audio.fluence.speaker=true \
     persist.audio.fluence.voicecall=true \
     persist.audio.fluence.voicerec=false \
     ro.qc.sdk.audio.fluencetype=fluence \
     use.voice.path.for.pcm.voip=false \
-    use.dedicated.device.for.voip=true
+    use.dedicated.device.for.voip=true \
+    audio.deep_buffer.media=true \
+    audio.offload.pcm.16bit.enable=true \
+    audio.offload.pcm.24bit.enable=true \
+    audio.offload.multiple.enabled=false \
+    audio.offload.buffer.size.kb=32
 
 # Camera
 PRODUCT_PROPERTY_OVERRIDES += \
@@ -37,6 +48,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
 # Radio
 PRODUCT_PROPERTY_OVERRIDES += \
     persist.data.netmgrd.qos.enable=true \
+    persist.data.qmi.adb_logmask=0 \
     persist.radio.add_power_save=1 \
     persist.radio.lte_vrat_report=1 \
     ro.telephony.mms_data_profile=5 \

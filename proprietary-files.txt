@@ -203,6 +203,9 @@ bin/thermal-engine
 vendor/lib/libthermalclient.so
 vendor/lib/libthermalioctl.so
 
+# Consumerir
+lib/hw/consumerir.default.so
+
 # DRM
 bin/qseecomd
 vendor/lib/drm/libdrmwvmplugin.so
@@ -217,6 +220,14 @@ vendor/lib/libwvdrm_L1.so
 vendor/lib/libwvm.so
 vendor/lib/libWVStreamControlAPI_L1.so
 vendor/lib/mediadrm/libwvdrmengine.so
+
+# Fingerprint
+bin/vcsFPService
+lib/libfpasmtztransport.so
+lib/libvalAuth.so
+lib/libvcsfp.so
+lib/libvfmClient.so
+lib/libvfmtztransport.so
 
 # Graphics
 vendor/lib/egl/eglsubAndroid.so
@@ -251,12 +262,9 @@ bin/radish
 
 # Media
 vendor/lib/libDivxDrm.so
-vendor/lib/libExtendedExtractor.so
--vendor/lib/libHevcSwDecoder.so
 vendor/lib/libI420colorconvert.so
 vendor/lib/libmm-color-convertor.so
 vendor/lib/libmmosal.so
-vendor/lib/libmmparser.so
 vendor/lib/libOmxAacDec.so
 vendor/lib/libOmxAmrwbplusDec.so
 vendor/lib/libOmxEvrcDec.so
